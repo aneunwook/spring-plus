@@ -62,7 +62,7 @@ public class TodoService {
                 ? end.atTime(23, 59, 59, 999_999_999)
                 : LocalDateTime.now().withHour(23).withMinute(59).withSecond(59).withNano(999_999_999);
 
-        Page<Todo> todos = todoRepository.findAllByOrderByModifiedAtDesc(weather, startDateTime, endDateTime, pageable);
+        Page<Todo> todos = todoRepository.findAllByWeatherAndModifiedAt(weather, startDateTime, endDateTime, pageable);
 
         return todos.map(todo -> new TodoResponse(
                 todo.getId(),
