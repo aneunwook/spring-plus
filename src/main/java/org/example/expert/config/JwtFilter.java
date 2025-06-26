@@ -4,44 +4,40 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.UnsupportedJwtException;
-import jakarta.servlet.FilterConfig;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.expert.domain.common.dto.AuthUser;
 import org.example.expert.domain.user.enums.UserRole;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.Collection;
+import java.util.List;
 
 @Slf4j
+@Component
 @RequiredArgsConstructor
 public class JwtFilter implements Filter {
 
     private final JwtUtil jwtUtil;
 
     @Override
-    public void init(FilterConfig filterConfig) throws ServletException {
-        Filter.super.init(filterConfig);
-    }
-
-    @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-        String url = httpRequest.getRequestURI();
-
-        if (url.startsWith("/auth")) {
-            chain.doFilter(request, response);
-            return;
-        }
-
         String bearerJwt = httpRequest.getHeader("Authorization");
 
         if (bearerJwt == null) {
-            // 토큰이 없는 경우 400을 반환합니다.
-            httpResponse.sendError(HttpServletResponse.SC_BAD_REQUEST, "JWT 토큰이 필요합니다.");
+            chain.doFilter(request, response);
             return;
         }
 
@@ -55,22 +51,23 @@ public class JwtFilter implements Filter {
                 return;
             }
 
+            long userId = Long.parseLong(claims.getSubject());
+            String email = claims.get("email", String.class);
             UserRole userRole = UserRole.valueOf(claims.get("userRole", String.class));
+            String nickname = claims.get("nickname", String.class);
 
-            httpRequest.setAttribute("userId", Long.parseLong(claims.getSubject()));
-            httpRequest.setAttribute("email", claims.get("email"));
-            httpRequest.setAttribute("userRole", claims.get("userRole"));
-            httpRequest.setAttribute("nickname", claims.get("nickname"));
+            AuthUser authUser = new AuthUser(userId, email, userRole, nickname);
 
-            if (url.startsWith("/admin")) {
-                // 관리자 권한이 없는 경우 403을 반환합니다.
-                if (!UserRole.ADMIN.equals(userRole)) {
-                    httpResponse.sendError(HttpServletResponse.SC_FORBIDDEN, "관리자 권한이 없습니다.");
-                    return;
-                }
-                chain.doFilter(request, response);
-                return;
-            }
+            // 인가를 위한 권한 정보 저장
+            Collection<? extends GrantedAuthority> authorities =
+                    List.of(new SimpleGrantedAuthority("ROLE_" + userRole.name()));
+
+            // Spring Security 인증 토큰 생성
+            Authentication authToken = new UsernamePasswordAuthenticationToken(authUser,
+                    null, authorities);
+
+            // SecurityContextHolder(세션)에 토큰 담기
+            SecurityContextHolder.getContext().setAuthentication(authToken);
 
             chain.doFilter(request, response);
         } catch (SecurityException | MalformedJwtException e) {
@@ -88,8 +85,4 @@ public class JwtFilter implements Filter {
         }
     }
 
-    @Override
-    public void destroy() {
-        Filter.super.destroy();
-    }
 }
